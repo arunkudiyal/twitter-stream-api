@@ -1,17 +1,33 @@
+const http = require('http')
+const path = require('path')
+const express = require('express')
+const socketIO = require('socket.io')
 const needle = require('needle')
 const config = require('dotenv').config()
 const TOKEN = process.env.TWITTER_BEARER_TOKEN
+const PORT = process.env.PORT || 3000
 
-// Set-up for communication
+// Creating the express app
+const app = express()
+const server = http.createServer(app)
+const io = socketIO(server)
+
+app.get('/', (req,res) => {
+    res.sendFile(path.resolve(__dirname, '../', 'client', 'index.html'))
+})
+
+// console.log(TOKEN)
+
+// Set the Request URLs
 const ruleURL = 'https://api.twitter.com/2/tweets/search/stream/rules'
 const streamURL = 'https://api.twitter.com/2/tweets/search/stream?tweet.fields=public_metrics&expansions=author_id'
 
-// Set the rule | Keyword
-const rules = [{value: 'programming'}]
+// Add Rules as Array of Objects
+const rules = [{ value: 'marvel' }]
 
-// FETCH THE TWEETS
+// We need three functions to do the job
 
-// Get the rules
+// 1. Get the Stream Rules
 async function getRules() {
     const response = await needle('get', ruleURL, {
         headers: {
@@ -19,14 +35,14 @@ async function getRules() {
         }
     })
 
-    console.log(response.body)
+    // console.log(response.body);
     return response.body
 }
 
-// Set the Rules
+// 2. Set the Stream Rules
 async function setRules() {
 
-    // data to be passed in being mentioned in the rule
+    // Data to be passed in while setting the rules
     const data = {
         add: rules
     }
@@ -38,22 +54,21 @@ async function setRules() {
         }
     })
 
-    console.log(response.body)
+    console.log(response.body);
     return response.body
 }
 
-// Delete the Rules
+// 3. Delete the Stream Rules
 async function deleteRules(rules) {
-
-    // Check if the rules is an array
-    if(!Array.isArray(rules)) {
-        return null;
+    // Check if the rules is an array or not
+    if(!Array.isArray(rules.data)) {
+        return null
     }
 
-    // Match these rules one bty one and remove the ones not inclued
+    // Match the ids
     const ids = rules.data.map((rule) => rule.id)
 
-    // data to be passed in being mentioned in the rule
+    // Delete the rules with their matching ids
     const data = {
         delete: {
             ids: ids
@@ -67,12 +82,12 @@ async function deleteRules(rules) {
         }
     })
 
-    console.log(response.body)
+    console.log(response.body);
     return response.body
 }
 
-// STREAM the Tweets
-function streamTweets() {
+// 4. Stream the Tweets
+function streamTweets(socket) {
     const stream = needle.get(streamURL, {
         headers: {
             Authorization: `Bearer ${TOKEN}`
@@ -82,36 +97,57 @@ function streamTweets() {
     stream.on('data', (data) => {
         try {
             const response = JSON.parse(data)
-            console.log(response)
-
+            // console.log(response);
+            socket.emit('tweet', response)
         } catch (error) {
-            // Nothing to write | COnnection to be open
-
+            // Nothing | Keep the connection open
         }
     })
 }
 
-// iff-y | Creating a function which runs automatically
-(async () => {
+io.on('connection', async () => {
+    console.log('Client connected...')
+
+    // Pass the stream to the Front End
     let currentRules
 
     try {
-
-        // Get the rules
+        // Get all stream rules
         currentRules = await getRules()
-        // console.log(currentRules)
-
-        // Delete the rules
+        // Delete the existing rules
         await deleteRules(currentRules)
-
-        // Set the rules
+        // Set the new rules to display
         await setRules()
 
-
     } catch (error) {
-        console.log(error)
+        console.error(error);
         process.exit(1)
     }
 
-    streamTweets()    
-})()
+    streamTweets(io)
+})
+
+// if-y | Runs Automatically without calling
+// (async () => {
+//     // let currentRules
+
+//     // try {
+//     //     // Get all stream rules
+//     //     currentRules = await getRules()
+//     //     // Delete the existing rules
+//     //     await deleteRules(currentRules)
+//     //     // Set the new rules to display
+//     //     await setRules()
+
+//     // } catch (error) {
+//     //     console.error(error);
+//     //     process.exit(1)
+//     // }
+
+//     // streamTweets()
+// })()
+
+// Make the server listen to the PORT
+server.listen(PORT, () => {
+    console.log(`Listening on Port ${PORT}`)
+})
